@@ -59,7 +59,7 @@ use crate::shards::shard_versioning::versioned_shard_path;
 use crate::shards::transfer::shard_transfer::{
     change_remote_shard_route, check_transfer_conflicts_strict, finalize_partial_shard,
     handle_transferred_shard_proxy, revert_proxy_shard_to_local, spawn_transfer_task,
-    ShardTransfer, ShardTransferKey,
+    ShardTransfer, ShardTransferKey, ShardTransferMethod,
 };
 use crate::shards::transfer::transfer_tasks_pool::{TaskResult, TransferTasksPool};
 use crate::shards::{replica_set, CollectionId, HASH_RING_SHARD_SCALE};
@@ -387,6 +387,7 @@ impl Collection {
                     from: transfer_from,
                     to: self.this_peer_id,
                     sync: true,
+                    method: None,
                 })
             } else {
                 log::warn!("No alive replicas to recover shard {shard_id}");
@@ -425,6 +426,10 @@ impl Collection {
         let task_result = active_transfer_tasks.stop_if_exists(&transfer.key()).await;
 
         debug_assert_eq!(task_result, TaskResult::NotFound);
+        debug_assert!(
+            transfer.method.is_some(),
+            "When sending shard, a transfer method must have been selected"
+        );
 
         let shard_holder = self.shards_holder.clone();
         let collection_id = self.id.clone();
@@ -444,7 +449,7 @@ impl Collection {
 
     pub async fn start_shard_transfer<T, F>(
         &self,
-        shard_transfer: ShardTransfer,
+        mut shard_transfer: ShardTransfer,
         on_finish: T,
         on_error: F,
     ) -> CollectionResult<bool>
@@ -452,6 +457,13 @@ impl Collection {
         T: Future<Output = ()> + Send + 'static,
         F: Future<Output = ()> + Send + 'static,
     {
+        // Select transfer method
+        // TODO: dynamically select transfer method, send in batches below indexing threshold?
+        // TODO: should decision on this be consistent on sender/receiver?
+        shard_transfer
+            .method
+            .replace(ShardTransferMethod::StreamRecords);
+
         let shard_id = shard_transfer.shard_id;
         let do_transfer = {
             let shards_holder = self.shards_holder.read().await;
@@ -1904,6 +1916,7 @@ impl Collection {
                     to: *this_peer_id,
                     shard_id,
                     sync: true,
+                    method: None,
                 };
                 if check_transfer_conflicts_strict(&transfer, transfers.iter()).is_some() {
                     continue; // this transfer won't work
