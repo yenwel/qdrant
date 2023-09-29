@@ -189,7 +189,7 @@ async fn transfer_snapshot(
     let shard_holder_read = shard_holder.read().await;
 
     // Create shard snapshot
-    let snapshot_description = shard_holder_read
+    let _snapshot_description = shard_holder_read
         .create_shard_snapshot(snapshots_path, collection_name, shard_id, temp_dir)
         .await?;
 
