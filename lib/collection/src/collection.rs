@@ -417,8 +417,13 @@ impl Collection {
             .await
     }
 
-    async fn send_shard<OF, OE>(&self, transfer: ShardTransfer, on_finish: OF, on_error: OE)
-    where
+    async fn send_shard<OF, OE>(
+        &self,
+        transfer: ShardTransfer,
+        temp_dir: PathBuf,
+        on_finish: OF,
+        on_error: OE,
+    ) where
         OF: Future<Output = ()> + Send + 'static,
         OE: Future<Output = ()> + Send + 'static,
     {
@@ -428,7 +433,7 @@ impl Collection {
         debug_assert_eq!(task_result, TaskResult::NotFound);
         debug_assert!(
             transfer.method.is_some(),
-            "When sending shard, a transfer method must have been selected"
+            "When sending shard, a transfer method must have been selected",
         );
 
         let shard_holder = self.shards_holder.clone();
@@ -440,6 +445,9 @@ impl Collection {
             transfer.clone(),
             collection_id,
             channel_service,
+            self.snapshots_path.clone(),
+            self.name(),
+            temp_dir,
             on_finish,
             on_error,
         );
@@ -450,6 +458,7 @@ impl Collection {
     pub async fn start_shard_transfer<T, F>(
         &self,
         mut shard_transfer: ShardTransfer,
+        temp_dir: PathBuf,
         on_finish: T,
         on_error: F,
     ) -> CollectionResult<bool>
@@ -511,7 +520,8 @@ impl Collection {
             is_local && is_sender
         };
         if do_transfer {
-            self.send_shard(shard_transfer, on_finish, on_error).await;
+            self.send_shard(shard_transfer, temp_dir, on_finish, on_error)
+                .await;
         }
         Ok(do_transfer)
     }

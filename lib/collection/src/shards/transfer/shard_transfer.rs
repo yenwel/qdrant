@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
@@ -72,8 +73,11 @@ pub async fn transfer_shard(
     transfer_config: ShardTransfer,
     shard_holder: Arc<LockedShardHolder>,
     collection_id: CollectionId,
+    collection_name: &str,
     peer_id: PeerId,
     channel_service: ChannelService,
+    snapshots_path: &Path,
+    temp_dir: &Path,
     stopped: Arc<AtomicBool>,
 ) -> CollectionResult<()> {
     let shard_id = transfer_config.shard_id;
@@ -111,7 +115,15 @@ pub async fn transfer_shard(
         }
         // Transfer shard as snapshot
         ShardTransferMethod::Snapshot => {
-            transfer_snapshot(shard_holder.clone(), shard_id, stopped.clone()).await
+            transfer_snapshot(
+                shard_holder.clone(),
+                shard_id,
+                snapshots_path,
+                collection_name,
+                temp_dir,
+                stopped.clone(),
+            )
+            .await
         }
     }
 }
@@ -167,14 +179,29 @@ async fn transfer_batches(
 }
 
 async fn transfer_snapshot(
-    _shard_holder: Arc<LockedShardHolder>,
-    _shard_id: ShardId,
+    shard_holder: Arc<LockedShardHolder>,
+    shard_id: ShardId,
+    snapshots_path: &Path,
+    collection_name: &str,
+    temp_dir: &Path,
     _stopped: Arc<AtomicBool>,
 ) -> CollectionResult<()> {
-    // TODO: create shard snapshot
-    todo!();
+    let shard_holder_read = shard_holder.read().await;
 
-    // TODO: debug assert we have configured queue proxy
+    // Create shard snapshot
+    let snapshot_description = shard_holder_read
+        .create_shard_snapshot(snapshots_path, collection_name, shard_id, temp_dir)
+        .await?;
+
+    // Debug assert we have configured a queue proxy
+    // TODO: error if none, warning if not queue proxy?
+    if let Some(shard_replica_set) = shard_holder_read.get_shard(&shard_id) {
+        let is_queue_proxy = shard_replica_set.is_queue_proxy_local().await;
+        debug_assert!(
+            is_queue_proxy,
+            "shard being snapshot transferred must be a queue proxy"
+        );
+    }
 
     // TODO: instruct remote to download/recover this snapshot
     todo!();
@@ -506,6 +533,9 @@ pub fn spawn_transfer_task<T, F>(
     transfer: ShardTransfer,
     collection_id: CollectionId,
     channel_service: ChannelService,
+    snapshots_path: PathBuf,
+    collection_name: String,
+    temp_dir: PathBuf,
     on_finish: T,
     on_error: F,
 ) -> StoppableAsyncTaskHandle<bool>
@@ -521,8 +551,11 @@ where
                 transfer.clone(),
                 shards_holder.clone(),
                 collection_id.clone(),
+                &collection_name,
                 transfer.to,
                 channel_service.clone(),
+                &snapshots_path,
+                &temp_dir,
                 stopped.clone(),
             )
             .await;
