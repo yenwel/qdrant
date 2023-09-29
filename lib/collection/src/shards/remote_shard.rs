@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use api::grpc::qdrant::collections_internal_client::CollectionsInternalClient;
 use api::grpc::qdrant::points_internal_client::PointsInternalClient;
@@ -485,6 +486,7 @@ impl ShardOperation for RemoteShard {
         &self,
         batch_request: Arc<SearchRequestBatch>,
         search_runtime_handle: &Handle,
+        timeout: Option<Duration>,
     ) -> CollectionResult<Vec<Vec<ScoredPoint>>> {
         let mut timer = ScopeDurationMeasurer::new(&self.telemetry_search_durations);
         timer.set_success(false);
@@ -499,12 +501,18 @@ impl ShardOperation for RemoteShard {
             collection_name: self.collection_id.clone(),
             search_points,
             shard_id: Some(self.id),
+            timeout: timeout.map(|t| t.as_secs()),
         };
+
         let search_batch_response = self
             .with_points_client(|mut client| async move {
-                client
-                    .search_batch(tonic::Request::new(request.clone()))
-                    .await
+                let mut request = tonic::Request::new(request.clone());
+
+                if let Some(timeout) = timeout {
+                    request.set_timeout(timeout);
+                }
+
+                client.search_batch(request).await
             })
             .await?
             .into_inner();
@@ -539,6 +547,7 @@ impl ShardOperation for RemoteShard {
         &self,
         batch_request: Arc<CoreSearchRequestBatch>,
         search_runtime_handle: &Handle,
+        timeout: Option<Duration>,
     ) -> CollectionResult<Vec<Vec<ScoredPoint>>> {
         let mut timer = ScopeDurationMeasurer::new(&self.telemetry_search_durations);
         timer.set_success(false);
@@ -553,12 +562,17 @@ impl ShardOperation for RemoteShard {
             collection_name: self.collection_id.clone(),
             search_points,
             shard_id: Some(self.id),
+            timeout: timeout.map(|t| t.as_secs()),
         };
         let search_batch_response = self
             .with_points_client(|mut client| async move {
-                client
-                    .core_search_batch(tonic::Request::new(request.clone()))
-                    .await
+                let mut request = tonic::Request::new(request.clone());
+
+                if let Some(timeout) = timeout {
+                    request.set_timeout(timeout);
+                }
+
+                client.core_search_batch(request).await
             })
             .await?
             .into_inner();
