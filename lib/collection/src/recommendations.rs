@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use futures::future::try_join_all;
 use itertools::Itertools;
@@ -154,7 +154,6 @@ where
     F: Fn(String) -> Fut,
     Fut: Future<Output = Option<RwLockReadGuard<'a, Collection>>>,
 {
-    let instant = Instant::now();
     // shortcuts batch if all requests with limit=0
     if request_batch.searches.iter().all(|s| s.limit == 0) {
         return Ok(vec![]);
@@ -338,8 +337,6 @@ where
             };
         }
 
-        // Update timeout after preprocessing
-        let timeout = timeout.map(|timeout| timeout.saturating_sub(instant.elapsed()));
         let run_result = if !searches.is_empty() {
             let search_batch_request = SearchRequestBatch { searches };
             collection
