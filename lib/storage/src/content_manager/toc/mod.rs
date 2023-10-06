@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use api::grpc::qdrant::qdrant_internal_client::QdrantInternalClient;
 use api::grpc::qdrant::WaitOnConsensusCommitRequest;
+use api::grpc::transport_channel_pool::AddTimeout;
 use collection::collection::{Collection, RequestShardTransfer};
 use collection::config::{default_replication_factor, CollectionConfig};
 use collection::operations::types::*;
@@ -30,6 +31,7 @@ use futures::Future;
 use segment::common::cpu::get_num_cpus;
 use tokio::runtime::Runtime;
 use tokio::sync::{Mutex, RwLock, RwLockReadGuard, Semaphore};
+use tonic::codegen::InterceptedService;
 use tonic::transport::Channel;
 use tonic::Status;
 
@@ -603,7 +605,7 @@ impl TableOfContent {
     async fn with_qdrant_client<T, O: Future<Output = Result<T, Status>>>(
         &self,
         peer_id: PeerId,
-        f: impl Fn(QdrantInternalClient<Channel>) -> O,
+        f: impl Fn(QdrantInternalClient<InterceptedService<Channel, AddTimeout>>) -> O,
     ) -> Result<T, CollectionError> {
         let address = self
             .channel_service
